@@ -18,13 +18,14 @@ class DesAccessApi:
             'database': 'desdr',
             'db_filepath': '/tmp/jobsdb.sqlite3',
         }
-        print(default_config)
         conf = {}
         for key in default_config:
             if key in config:
                 conf[key] = config[key]
             else:
                 conf[key] = default_config[key]
+        print('Active configuration:')
+        print(json.dumps(conf, indent=2))
         self.api_base_url = f'''{conf['scheme']}://{conf['base_domain']}/{conf['api_base_path'].strip('/')}'''
         self.files_base_url = f'''{conf['scheme']}://{conf['base_domain']}/{conf['files_base_path'].strip('/')}'''
         self.database = conf['database']
@@ -102,28 +103,38 @@ class DesAccessApi:
         response = r.json()
         # Refresh auth token
         self.auth_token = response['new_token']
-        print(json.dumps(response, indent=2))
+        # print(json.dumps(response, indent=2))
         return self.db.update_job(job_id=job_id, status=response['jobs'][0]['job_status'])
         
+    def update_unfinished_jobs_status(self):
+        jobs = self.db.get_all_jobs(pretty_print=True)
+        for index, job in jobs.iterrows():
+            # print(job)
+            if job['status'] not in ['success', 'failed']:
+                print(f'''Getting status of job "{job['job_id']}"...''')
+                self.get_job_status(job_id=job['job_id'])
+
     def get_job_url(self, job_id):
         job = self.db.get_job(job_id=job_id)
         # print(json.dumps(job, indent=2))
         job_url = f'''{self.files_base_url}/{self.username}/{job[0][2]}/{job_id}'''
         return job_url
 
-    def list_job_files(self, url, files=[]):
+    def list_job_files(self, url='', files=None):
+        if not files:
+            files = []
         r = requests.get('{}/json'.format(url))
         response = r.json()
-        print(json.dumps(response, indent=2))
+        # print(json.dumps({"url": url, "files": files}, indent=2))
         for item in response:
             if item['type'] == 'directory':
                 suburl = '{}/{}'.format(url, item['name'])
-                self.list_job_files(suburl, files=files)
+                files = self.list_job_files(suburl, files=files)
             elif item['type'] == 'file':
                 files.append('{}/{}'.format(url, item['name']))
         return files
 
-    def list_downloaded_files(self, download_dir):
+    def list_downloaded_files(self, download_dir=''):
         files = []
         for dirpath, dirnames, filenames in os.walk(download_dir):
             for filename in filenames:
@@ -139,11 +150,11 @@ class DesAccessApi:
         downloads = []
         for download in downloaded_files:
             downloads.append(download.replace(download_dir, ''))
-        print(files)
-        print(downloads)
+        # print(sorted(files))
+        # print(sorted(downloads))
         return sorted(files) == sorted(downloads)
         
-    def download_job_files(self, url, outdir):
+    def download_job_files(self, url='', outdir=''):
         os.makedirs(outdir, exist_ok=True)
         r = requests.get('{}/json'.format(url))
         response = r.json()
